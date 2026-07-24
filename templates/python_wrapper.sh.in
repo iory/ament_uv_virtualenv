@@ -25,4 +25,12 @@ if [[ ! -f "${TARGET_SCRIPT}" ]]; then
   exit 1
 fi
 
+# Make the package's OWN Python modules importable. `install(DIRECTORY <pkg>
+# DESTINATION share/<pkg>)` puts them at share/<pkg>/<pkg>/, which nothing else
+# adds to sys.path -- so a script doing `from <pkg> import ...` fails under the
+# venv interpreter even though `ros2 run` located its wrapper. Prepend that dir,
+# preserving any PYTHONPATH `source install/setup.bash` already set (rclpy,
+# sibling ament packages), so both the package itself and its ROS deps resolve.
+export PYTHONPATH="${PKG_PREFIX}/share/@PROJECT_NAME@${PYTHONPATH:+:${PYTHONPATH}}"
+
 exec "${VENV_PYTHON}" "${TARGET_SCRIPT}" "$@"
