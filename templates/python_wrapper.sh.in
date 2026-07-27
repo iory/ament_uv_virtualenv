@@ -33,4 +33,14 @@ fi
 # sibling ament packages), so both the package itself and its ROS deps resolve.
 export PYTHONPATH="${PKG_PREFIX}/share/@PROJECT_NAME@${PYTHONPATH:+:${PYTHONPATH}}"
 
+# Keep ~/.local out of the venv's sys.path. `uv venv --system-site-packages`
+# sets include-system-site-packages=true, and site.py then also adds the *user*
+# site directory -- which is not what we asked for. Any compiled package the
+# user happens to have pip-installed there (torchvision, torchaudio, numpy...)
+# shadows nothing but still gets imported, and if it was built against a
+# different torch/numpy ABI than the venv's, it fails at import time with
+# errors like "operator torchvision::nms does not exist". The venv plus the
+# system dist-packages (where rclpy lives) is exactly the intended path.
+export PYTHONNOUSERSITE=1
+
 exec "${VENV_PYTHON}" "${TARGET_SCRIPT}" "$@"
