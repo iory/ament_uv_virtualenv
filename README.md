@@ -20,6 +20,7 @@
 - [マクロリファレンス](#マクロリファレンス)
   - [`ament_generate_virtualenv()`](#ament_generate_virtualenv)
   - [`ament_uv_install_python_scripts()`](#ament_uv_install_python_scripts)
+  - [`ament_uv_install_python_package()`](#ament_uv_install_python_package)
   - [`ament_uv_check_virtualenv()`](#ament_uv_check_virtualenv)
 - [`requirements.in` と `requirements.txt`](#requirementsin-と-requirementstxt)
 - [Lockfile ワークフロー](#lockfile-ワークフロー)
@@ -210,6 +211,68 @@ ament_uv_install_python_scripts(
 | `STRIP_PY_EXTENSION` | OFF | ラッパー名から `.py` を取り除く（`ros2 run pkg foo` で起動できるようになる） |
 
 **呼び出し前に `ament_generate_virtualenv()` を必ず呼ぶこと**。venv 名を内部参照しているため。
+
+### `ament_uv_install_python_package()`
+
+パッケージ自身の Python モジュールツリーを install し、**venv のインタプリタを直接叩いた
+ときにも import できるようにする**マクロです。
+
+```cmake
+ament_uv_install_python_package(
+  [PACKAGE_DIR <dir>]      # 既定: <pkg>（CMAKE_CURRENT_SOURCE_DIR 起点）
+  [DESTINATION <dir>]      # 既定: share/<pkg>
+  [PTH_NAME <name>]        # 既定: _ament_uv_<pkg>_path.pth
+)
+```
+
+`ament_uv_install_python_scripts()` が生成する bash ラッパは `PYTHONPATH` を設定してから
+venv の python を exec するので `ros2 run` は動きます。しかし **venv の python を直接
+起動した場合は何も `sys.path` を足さない**ため、こうなります:
+
+```console
+$ install/<pkg>/share/<pkg>/venv/bin/python
+>>> from <pkg>.core import Thing
+ModuleNotFoundError: No module named '<pkg>'
+```
+
+Jupyter から使う、素のスクリプトから使う、対話的に試す、といった通常の使い方が
+これで全部塞がれます。このマクロは venv の `site-packages` に `.pth` を1枚置いて塞ぎます。
+
+**なぜ `uv pip install -e .` ではないか**: `ament_generate_virtualenv()` は
+`uv pip sync` で venv を同期しますが、`uv pip sync` は **lockfile に無いパッケージを
+アンインストールします**。自パッケージを editable install しても次のビルドで消えます。
+`.pth` はパッケージレコードではないので `uv pip sync` に触られません（検証済み）。
+
+生成される `.pth` は絶対パスを焼き込まず、`sys.prefix` からの相対で解決します:
+
+```python
+import os, site, sys; site.addsitedir(os.path.normpath(os.path.join(sys.prefix, '../')))
+```
+
+そのため **install prefix を移動しても壊れません**。
+
+```cmake
+ament_generate_virtualenv(REQUIREMENTS requirements.in LOCKFILE requirements.txt)
+
+# install(DIRECTORY <pkg> DESTINATION share/<pkg>) の置き換えとして使う
+ament_uv_install_python_package()
+
+ament_uv_install_python_scripts(PROGRAMS scripts/my_node.py STRIP_PY_EXTENSION)
+```
+
+利用例（ワークスペースを source した上で、任意のディレクトリから）:
+
+```bash
+source install/setup.bash
+install/<pkg>/share/<pkg>/venv/bin/python -c "from <pkg>.core import Thing"
+```
+
+兄弟の ament パッケージ（`rclpy` や他の `ament_python` パッケージ）は
+`source install/setup.bash` が `PYTHONPATH` に載せるので、**source は依然として必要**です。
+このマクロが解決するのは自パッケージの分だけです。
+
+**`ament_generate_virtualenv()` より後に呼ぶこと**。venv 名を内部参照しており、
+また install ルールの宣言順に依存して venv 本体の install 後に `.pth` を置くためです。
 
 ### `ament_uv_check_virtualenv()`
 
