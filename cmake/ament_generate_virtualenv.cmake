@@ -70,6 +70,18 @@ function(ament_generate_virtualenv)
     set(_AGV_SYSTEM_SITE_PACKAGES ON)
   endif()
 
+  # --- Resolution target Python ---------------------------------------------
+  # `uv pip compile` resolves for the interpreter it happens to run under, not
+  # for the venv's Python. On a host whose default is newer than PYTHON, that
+  # silently drops dependencies that only exist below that version -- pytest
+  # needs `exceptiongroup` on 3.10 but not on 3.11+, so the lockfile came out
+  # missing it and the venv could not even import pytest. Pin the resolution to
+  # the same version the venv is built with.
+  set(_COMPILE_PY_OPTS "")
+  if(_AGV_PYTHON)
+    list(APPEND _COMPILE_PY_OPTS "--python-version" "${_AGV_PYTHON}")
+  endif()
+
   # --- Locate uv -------------------------------------------------------------
   find_program(UV_EXECUTABLE uv)
   if(NOT UV_EXECUTABLE)
@@ -116,7 +128,7 @@ function(ament_generate_virtualenv)
     add_custom_target(${PROJECT_NAME}_lock_virtualenv
       COMMAND ${CMAKE_COMMAND} -E echo
               "[${PROJECT_NAME}] uv pip compile ${_AGV_REQUIREMENTS} -> ${_LOCKED}"
-      COMMAND "${UV_EXECUTABLE}" pip compile ${_UV_CACHE_OPTS} --quiet
+      COMMAND "${UV_EXECUTABLE}" pip compile ${_UV_CACHE_OPTS} ${_COMPILE_PY_OPTS} --quiet
               "${_AGV_REQUIREMENTS}" -o "${_LOCKED}"
       COMMENT "[${PROJECT_NAME}] Regenerating lockfile ${_LOCKED}"
       VERBATIM
@@ -130,7 +142,7 @@ function(ament_generate_virtualenv)
         "ament_generate_virtualenv: LOCKFILE ${_LOCKED} is missing. "
         "Generating it from ${_AGV_REQUIREMENTS}. Commit the result for reproducible builds.")
       execute_process(
-        COMMAND "${UV_EXECUTABLE}" pip compile ${_UV_CACHE_OPTS} --quiet
+        COMMAND "${UV_EXECUTABLE}" pip compile ${_UV_CACHE_OPTS} ${_COMPILE_PY_OPTS} --quiet
                 "${_AGV_REQUIREMENTS}" -o "${_LOCKED}"
         RESULT_VARIABLE _compile_rc
       )
