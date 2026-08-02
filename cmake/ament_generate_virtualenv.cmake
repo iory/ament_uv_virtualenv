@@ -11,7 +11,10 @@
 #                                      # instead of re-resolving every build.
 #                                      # If missing it is generated once on first build.
 #     [VENV_NAME <name>]               # default: "venv"
-#     [PYTHON <X.Y|path>]              # default: system default; passed to `uv venv --python`
+#     [PYTHON <X.Y|path>]              # default: system default; passed to `uv venv --python`.
+#                                      # A path pins the exact interpreter, which is
+#                                      # what you want when the venv has to import
+#                                      # the distro's ROS extension modules.
 #     [SYSTEM_SITE_PACKAGES <ON|OFF>]  # default: ON (so rclpy / ROS Python is importable)
 #     [UV_CACHE <path>]                # optional; uv cache directory (passed via --cache-dir).
 #                                      # Falls back to uv's default (~/.cache/uv) when unset.
@@ -77,9 +80,29 @@ function(ament_generate_virtualenv)
   # needs `exceptiongroup` on 3.10 but not on 3.11+, so the lockfile came out
   # missing it and the venv could not even import pytest. Pin the resolution to
   # the same version the venv is built with.
+  #
+  # PYTHON may also be an interpreter path, which is the only way to be sure the
+  # venv runs the very interpreter the host's ROS C extensions were built for.
+  # `uv pip compile --python-version` only understands an X.Y string, so ask the
+  # interpreter itself rather than trying to parse its path.
   set(_COMPILE_PY_OPTS "")
   if(_AGV_PYTHON)
-    list(APPEND _COMPILE_PY_OPTS "--python-version" "${_AGV_PYTHON}")
+    set(_AGV_PYTHON_VERSION "${_AGV_PYTHON}")
+    if(IS_ABSOLUTE "${_AGV_PYTHON}")
+      execute_process(
+        COMMAND "${_AGV_PYTHON}" -c "import sys; print('%d.%d' % sys.version_info[:2])"
+        OUTPUT_VARIABLE _AGV_PYTHON_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _AGV_PYTHON_RESULT
+      )
+      if(NOT _AGV_PYTHON_RESULT EQUAL 0)
+        message(FATAL_ERROR
+          "ament_generate_virtualenv: PYTHON was given as the path "
+          "'${_AGV_PYTHON}', but running it failed. Pass an existing "
+          "interpreter or an X.Y version string.")
+      endif()
+    endif()
+    list(APPEND _COMPILE_PY_OPTS "--python-version" "${_AGV_PYTHON_VERSION}")
   endif()
 
   # --- Locate uv -------------------------------------------------------------
