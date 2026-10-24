@@ -213,6 +213,13 @@ function(ament_generate_virtualenv)
   )
 
   # --- Install the whole venv ----------------------------------------------
+  # install(DIRECTORY) only adds and overwrites. What `uv pip sync` removed
+  # from the build venv -- an upgraded package's old dist-info, a dropped
+  # dependency -- would linger in the installed copy, so `uv pip list` and
+  # importlib.metadata see two versions. Install into an empty directory.
+  install(CODE
+    "file(REMOVE_RECURSE \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/${_AGV_VENV_NAME}\")"
+  )
   install(
     DIRECTORY "${_VENV_DIR}/"
     DESTINATION "share/${PROJECT_NAME}/${_AGV_VENV_NAME}"
