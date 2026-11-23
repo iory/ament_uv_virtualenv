@@ -178,8 +178,14 @@ ament_generate_virtualenv(
 | `LOCKFILE` | unset (build tree only) | Path of a committable lockfile (relative to the source tree). When set, the build only syncs from this file; re-resolving is an explicit step through the `<pkg>_lock_virtualenv` target. See [Lockfile workflow](#lockfile-workflow) |
 | `VENV_NAME` | `venv` | Name of the venv directory (change it when one package needs several venvs) |
 | `PYTHON` | system default | Passed to `uv venv --python`: `3.11`, `/usr/bin/python3.12`, ... |
-| `SYSTEM_SITE_PACKAGES` | `ON` | With `OFF`, `rclpy` and the rest of ROS are no longer visible from the venv |
+| `SYSTEM_SITE_PACKAGES` | `ON` | With `OFF`, `rclpy` and the rest of ROS are no longer visible from the venv. With `ON`, the NumPy ABI guard below is installed |
 | `UV_CACHE` | uv default (`~/.cache/uv`) | Overrides uv's cache location, e.g. to pin it to `/tmp` on CI. See [uv cache and hardlink dedup](#uv-cache-and-hardlink-dedup) |
+
+**NumPy ABI guard** (with `SYSTEM_SITE_PACKAGES ON`):
+
+When the venv and the distro disagree on NumPy's major version (NumPy 2 in the venv, NumPy 1 from apt), a package the venv does not have is found in the system site-packages instead. If that is an apt build with a compiled NumPy extension (`python3-shapely`, `python3-h5py`, ...), importing it prints NumPy's "A module that was compiled using NumPy 1.x cannot be run in NumPy 2" traceback and fails. trimesh imports shapely whenever it can, so every script that loaded a mesh printed that traceback.
+
+After `uv pip sync`, `templates/numpy_abi_guard.py` runs on the venv's Python. Every package that is in the system site-packages, is not in the venv, and has a `.so` using NumPy's C API (`_ARRAY_API`) is made unimportable from the venv (`_ament_uv_numpy_abi_guard.pth`). Importing one raises a `ModuleNotFoundError` that says why and that adding it to `requirements.in` gets a matching build into the venv; code that imports it optionally (trimesh) treats it as absent. The hidden packages are listed in the build log. Nothing is hidden when the NumPy major versions agree.
 
 **Output**:
 
@@ -395,7 +401,8 @@ Hardlinks need **the cache and the venv on the same filesystem**. Across tmpfs o
                    -o <build>/requirements.locked.txt
 [3] uv pip sync    --python <build>/venv/bin/python
                    <build>/requirements.locked.txt
-[4] touch <build>/venv.stamp
+[4] <build>/venv/bin/python numpy_abi_guard.py     (SYSTEM_SITE_PACKAGES ON)
+[5] touch <build>/venv.stamp
 ```
 
 - the `add_custom_command` reruns only when the mtime of `requirements.txt` changes

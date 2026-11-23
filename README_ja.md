@@ -180,8 +180,21 @@ ament_generate_virtualenv(
 | `LOCKFILE` | 未指定（build tree のみ） | コミット可能な lockfile のパス（ソース tree 相対）。指定すると build はこのファイルから sync するだけになり、再 resolve は `<pkg>_lock_virtualenv` ターゲットで明示的に行う。詳細は [Lockfile ワークフロー](#lockfile-ワークフロー) |
 | `VENV_NAME` | `venv` | venv ディレクトリ名（複数 venv が必要なとき変更） |
 | `PYTHON` | システム標準 | `uv venv --python` に渡す。`3.11`, `/usr/bin/python3.12` 等 |
-| `SYSTEM_SITE_PACKAGES` | `ON` | `OFF` にすると `rclpy` 等が venv から見えなくなるので注意 |
+| `SYSTEM_SITE_PACKAGES` | `ON` | `OFF` にすると `rclpy` 等が venv から見えなくなるので注意。`ON` のときは下記の NumPy ABI ガードが入る |
 | `UV_CACHE` | uv デフォルト (`~/.cache/uv`) | uv のキャッシュ場所を上書き。CI で `/tmp` 等に固定したいとき。詳細は [uv キャッシュと hardlink dedup](#uv-キャッシュと-hardlink-dedup) |
+
+**NumPy ABI ガード**（`SYSTEM_SITE_PACKAGES ON` のとき）:
+
+venv が NumPy 2、apt の Python が NumPy 1 のように major が違うと、venv に無いパッケージは
+apt 版（`python3-shapely` 等、NumPy 1 向けにビルドされた拡張）が見えてしまい、import 時に
+「A module that was compiled using NumPy 1.x cannot be run in NumPy 2」の traceback を出して失敗する
+（trimesh は shapely があれば必ず import するので、メッシュを読むたびに出ていた）。
+`uv pip sync` の後に `templates/numpy_abi_guard.py` が venv の Python で走り、システムの
+site-packages にあって venv に無く、`.so` が NumPy C-API（`_ARRAY_API`）を使うパッケージを
+venv から import できないようにする（`_ament_uv_numpy_abi_guard.pth`）。import すると理由と
+「requirements.in に足せば venv 用のビルドが入る」旨の `ModuleNotFoundError` になり、
+trimesh のような任意 import 側は「無い」ものとして動く。隠したものは build ログに一覧が出る。
+NumPy の major が一致していれば何もしない。
 
 **生成物**:
 
@@ -407,7 +420,8 @@ ament_generate_virtualenv(
                    -o <build>/requirements.locked.txt
 [3] uv pip sync    --python <build>/venv/bin/python
                    <build>/requirements.locked.txt
-[4] touch <build>/venv.stamp
+[4] <build>/venv/bin/python numpy_abi_guard.py     (SYSTEM_SITE_PACKAGES ON のとき)
+[5] touch <build>/venv.stamp
 ```
 
 - `requirements.txt` の mtime が変わったときだけ `add_custom_command` が再実行される
