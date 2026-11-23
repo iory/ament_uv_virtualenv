@@ -191,6 +191,20 @@ function(ament_generate_virtualenv)
     )
   endif()
 
+  # With the system site-packages visible, an apt package built against a
+  # different NumPy major than the venv's is found whenever the venv has no
+  # copy of its own, and crashes on import. Hide those (see the script).
+  set(_GUARD_CMDS "")
+  if(_AGV_SYSTEM_SITE_PACKAGES)
+    set(_GUARD_SCRIPT "${ament_uv_virtualenv_DIR}/../templates/numpy_abi_guard.py")
+    if(NOT EXISTS "${_GUARD_SCRIPT}")
+      message(FATAL_ERROR
+        "ament_generate_virtualenv: ${_GUARD_SCRIPT} not found")
+    endif()
+    set(_GUARD_CMDS COMMAND "${_VENV_PY}" "${_GUARD_SCRIPT}")
+    list(APPEND _SYNC_DEPENDS "${_GUARD_SCRIPT}")
+  endif()
+
   # --- The actual build step ------------------------------------------------
   # `uv venv --allow-existing` is a no-op when the venv is already present
   # with the requested options, so it is safe to run on every build.
@@ -202,6 +216,7 @@ function(ament_generate_virtualenv)
     COMMAND "${UV_EXECUTABLE}" venv ${_UV_CACHE_OPTS} ${_VENV_OPTS} "${_VENV_DIR}"
     ${_BUILD_COMPILE_CMDS}
     COMMAND "${UV_EXECUTABLE}" pip sync ${_UV_CACHE_OPTS} --python "${_VENV_PY}" "${_SYNC_INPUT}"
+    ${_GUARD_CMDS}
     COMMAND ${CMAKE_COMMAND} -E touch "${_STAMP}"
     DEPENDS ${_SYNC_DEPENDS}
     COMMENT "[${PROJECT_NAME}] Syncing venv via uv from ${_SYNC_INPUT}"
